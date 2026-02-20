@@ -25,6 +25,7 @@ jobs:
       run: |
         mkdir -p app/src/main/assets
         mkdir -p app/src/main/res
+        mkdir -p app/src/main/java/com/sawkhin558/lottery
         cp index.html app/src/main/assets/
         
         # Create AndroidManifest.xml
