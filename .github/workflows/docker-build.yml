@@ -1,0 +1,183 @@
+name: Docker APK Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Build APK with Docker
+      run: |
+        # Create a simple Android project
+        mkdir -p android-app/app/src/main/assets
+        mkdir -p android-app/app/src/main/res/layout
+        mkdir -p android-app/app/src/main/java/com/lottery/app
+        
+        cp index.html android-app/app/src/main/assets/
+        
+        # Create minimal Android files
+        cat > android-app/app/src/main/AndroidManifest.xml << 'EOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+            package="com.lottery.app">
+            <uses-permission android:name="android.permission.INTERNET" />
+            <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+            <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+            <application
+                android:allowBackup="true"
+                android:icon="@mipmap/ic_launcher"
+                android:label="Lottery Manager"
+                android:theme="@style/Theme.AppCompat.Light.NoActionBar"
+                android:usesCleartextTraffic="true">
+                <activity
+                    android:name=".MainActivity"
+                    android:exported="true"
+                    android:configChanges="orientation|screenSize|keyboardHidden">
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN" />
+                        <category android:name="android.intent.category.LAUNCHER" />
+                    </intent-filter>
+                </activity>
+            </application>
+        </manifest>
+        EOF
+        
+        cat > android-app/app/src/main/java/com/lottery/app/MainActivity.java << 'EOF'
+        package com.lottery.app;
+        import android.os.Bundle;
+        import androidx.appcompat.app.AppCompatActivity;
+        import android.webkit.WebView;
+        import android.webkit.WebViewClient;
+        import android.webkit.WebSettings;
+        
+        public class MainActivity extends AppCompatActivity {
+            private WebView webView;
+            @Override
+            protected void onCreate(Bundle savedInstanceState) {
+                super.onCreate(savedInstanceState);
+                setContentView(R.layout.activity_main);
+                webView = findViewById(R.id.webview);
+                WebSettings webSettings = webView.getSettings();
+                webSettings.setJavaScriptEnabled(true);
+                webSettings.setDomStorageEnabled(true);
+                webSettings.setAllowFileAccess(true);
+                webView.setWebViewClient(new WebViewClient());
+                webView.loadUrl("file:///android_asset/index.html");
+            }
+            @Override
+            public void onBackPressed() {
+                if (webView.canGoBack()) {
+                    webView.goBack();
+                } else {
+                    super.onBackPressed();
+                }
+            }
+        }
+        EOF
+        
+        cat > android-app/app/src/main/res/layout/activity_main.xml << 'EOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <WebView xmlns:android="http://schemas.android.com/apk/res/android"
+            android:id="@+id/webview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+        EOF
+        
+        # Create build.gradle files
+        cat > android-app/build.gradle << 'EOF'
+        buildscript {
+            repositories {
+                google()
+                mavenCentral()
+            }
+            dependencies {
+                classpath 'com.android.tools.build:gradle:7.2.1'
+            }
+        }
+        allprojects {
+            repositories {
+                google()
+                mavenCentral()
+            }
+        }
+        task clean(type: Delete) {
+            delete rootProject.buildDir
+        }
+        EOF
+        
+        cat > android-app/app/build.gradle << 'EOF'
+        plugins {
+            id 'com.android.application'
+        }
+        android {
+            compileSdk 32
+            defaultConfig {
+                applicationId "com.lottery.app"
+                minSdk 21
+                targetSdk 32
+                versionCode 1
+                versionName "1.0"
+            }
+            buildTypes {
+                release {
+                    minifyEnabled false
+                }
+                debug {
+                    debuggable true
+                }
+            }
+        }
+        dependencies {
+            implementation 'androidx.appcompat:appcompat:1.4.2'
+        }
+        EOF
+        
+        # Create gradle wrapper
+        cd android-app
+        echo "Creating gradle wrapper..."
+        
+        # Use Docker to build
+        docker run --rm -v $(pwd):/project \
+          -w /project \
+          openjdk:11-jdk \
+          bash -c "
+            apt-get update && apt-get install -y gradle
+            gradle wrapper --gradle-version=7.5
+            ./gradlew assembleDebug
+          "
+        
+        # Check if APK was created
+        if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+          echo "APK created successfully!"
+          cp app/build/outputs/apk/debug/app-debug.apk ../lottery-app.apk
+        else
+          echo "APK creation failed"
+          ls -la app/build/outputs/ || true
+        fi
+    
+    - name: Upload APK
+      if: success()
+      uses: actions/upload-artifact@v4
+      with:
+        name: lottery-apk
+        path: lottery-app.apk
+    
+    - name: Create Release
+      if: success() && github.event_name == 'push'
+      uses: softprops/action-gh-release@v1
+      with:
+        files: lottery-app.apk
+        tag_name: v1.0.${{ github.run_number }}
+        name: Lottery App v1.0.${{ github.run_number }}
+        body: |
+          Lottery Manager APK built from HTML
+          - WebView based Android app
+          - Storage permissions enabled
+        draft: false
+        prerelease: false
