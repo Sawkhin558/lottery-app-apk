@@ -1,0 +1,72 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+    
+    - name: Install dependencies
+      run: |
+        npm install -g @capacitor/cli
+        npm install
+    
+    - name: Set up Java
+      uses: actions/setup-java@v3
+      with:
+        distribution: 'temurin'
+        java-version: '17'
+    
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v2
+    
+    - name: Build Android APK
+      run: |
+        # Initialize Capacitor Android project
+        npx cap add android
+        
+        # Sync web assets to Android
+        npx cap sync android
+        
+        # Build APK
+        cd android
+        ./gradlew assembleDebug
+        
+        # Copy APK to root directory
+        cp app/build/outputs/apk/debug/app-debug.apk ../lottery-app-debug.apk
+        cd ..
+    
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: lottery-app-apk
+        path: lottery-app-debug.apk
+    
+    - name: Create Release
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      uses: softprops/action-gh-release@v1
+      with:
+        files: lottery-app-debug.apk
+        tag_name: v1.0.${{ github.run_number }}
+        name: Release v1.0.${{ github.run_number }}
+        body: |
+          Automated APK build for Lottery Manager App
+          
+          Changes in this release:
+          - Automated build from GitHub Actions
+          - Includes storage permissions for backup/restore
+        draft: false
+        prerelease: false
