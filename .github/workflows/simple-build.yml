@@ -1,0 +1,206 @@
+name: Simple APK Build
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+    
+    - name: Setup Android SDK
+      uses: android-actions/setup-android@v2
+    
+    - name: Create Android project structure
+      run: |
+        mkdir -p app/src/main/assets
+        mkdir -p app/src/main/res
+        cp index.html app/src/main/assets/
+        
+        # Create AndroidManifest.xml
+        cat > app/src/main/AndroidManifest.xml << 'EOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+            package="com.sawkhin558.lottery">
+            
+            <uses-permission android:name="android.permission.INTERNET" />
+            <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+            <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+            <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+            
+            <application
+                android:allowBackup="true"
+                android:icon="@mipmap/ic_launcher"
+                android:label="Lottery Manager"
+                android:theme="@style/Theme.AppCompat.Light.NoActionBar"
+                android:usesCleartextTraffic="true">
+                <activity
+                    android:name=".MainActivity"
+                    android:exported="true"
+                    android:configChanges="orientation|screenSize|keyboardHidden">
+                    <intent-filter>
+                        <action android:name="android.intent.action.MAIN" />
+                        <category android:name="android.intent.category.LAUNCHER" />
+                    </intent-filter>
+                </activity>
+            </application>
+        </manifest>
+        EOF
+        
+        # Create MainActivity.java
+        cat > app/src/main/java/com/sawkhin558/lottery/MainActivity.java << 'EOF'
+        package com.sawkhin558.lottery;
+        
+        import android.os.Bundle;
+        import androidx.appcompat.app.AppCompatActivity;
+        import android.webkit.WebView;
+        import android.webkit.WebViewClient;
+        import android.webkit.WebSettings;
+        
+        public class MainActivity extends AppCompatActivity {
+            private WebView webView;
+            
+            @Override
+            protected void onCreate(Bundle savedInstanceState) {
+                super.onCreate(savedInstanceState);
+                setContentView(R.layout.activity_main);
+                
+                webView = findViewById(R.id.webview);
+                WebSettings webSettings = webView.getSettings();
+                webSettings.setJavaScriptEnabled(true);
+                webSettings.setDomStorageEnabled(true);
+                webSettings.setDatabaseEnabled(true);
+                webSettings.setAllowFileAccess(true);
+                webSettings.setAllowContentAccess(true);
+                webSettings.setAllowFileAccessFromFileURLs(true);
+                webSettings.setAllowUniversalAccessFromFileURLs(true);
+                
+                webView.setWebViewClient(new WebViewClient());
+                webView.loadUrl("file:///android_asset/index.html");
+            }
+            
+            @Override
+            public void onBackPressed() {
+                if (webView.canGoBack()) {
+                    webView.goBack();
+                } else {
+                    super.onBackPressed();
+                }
+            }
+        }
+        EOF
+        
+        # Create activity_main.xml
+        cat > app/src/main/res/layout/activity_main.xml << 'EOF'
+        <?xml version="1.0" encoding="utf-8"?>
+        <WebView xmlns:android="http://schemas.android.com/apk/res/android"
+            android:id="@+id/webview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+        EOF
+        
+        # Create build.gradle
+        cat > build.gradle << 'EOF'
+        buildscript {
+            repositories {
+                google()
+                mavenCentral()
+            }
+            dependencies {
+                classpath 'com.android.tools.build:gradle:7.4.2'
+            }
+        }
+        
+        allprojects {
+            repositories {
+                google()
+                mavenCentral()
+            }
+        }
+        
+        task clean(type: Delete) {
+            delete rootProject.buildDir
+        }
+        EOF
+        
+        # Create app/build.gradle
+        mkdir -p app
+        cat > app/build.gradle << 'EOF'
+        plugins {
+            id 'com.android.application'
+        }
+        
+        android {
+            namespace 'com.sawkhin558.lottery'
+            compileSdk 34
+            
+            defaultConfig {
+                applicationId "com.sawkhin558.lottery"
+                minSdk 21
+                targetSdk 34
+                versionCode 1
+                versionName "1.0"
+            }
+            
+            buildTypes {
+                release {
+                    minifyEnabled false
+                    proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+                }
+                debug {
+                    debuggable true
+                }
+            }
+            
+            compileOptions {
+                sourceCompatibility JavaVersion.VERSION_1_8
+                targetCompatibility JavaVersion.VERSION_1_8
+            }
+        }
+        
+        dependencies {
+            implementation 'androidx.appcompat:appcompat:1.6.1'
+            implementation 'com.google.android.material:material:1.10.0'
+            implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+        }
+        EOF
+        
+        # Create gradle wrapper
+        ./gradlew wrapper --gradle-version=7.5
+    
+    - name: Build APK
+      run: |
+        chmod +x gradlew
+        ./gradlew assembleDebug
+    
+    - name: Upload APK
+      uses: actions/upload-artifact@v4
+      with:
+        name: lottery-app
+        path: app/build/outputs/apk/debug/app-debug.apk
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: app/build/outputs/apk/debug/app-debug.apk
+        tag_name: v1.0.${{ github.run_number }}
+        name: Release v1.0.${{ github.run_number }}
+        body: |
+          Simple APK build for Lottery Manager App
+          
+          Features:
+          - WebView based Android app
+          - Storage permissions enabled
+          - Fullscreen web interface
+        draft: false
+        prerelease: false
